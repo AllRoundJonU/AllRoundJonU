@@ -1,5 +1,5 @@
 # 💫 About Me:
-🔭 I’m currently working on [it-scripts](https://github.com/it-scripts)<br>🌱 I’m currently studying at Uni Ulm Medieninformatik<br>⚡ Fun fact: There are around 700 separate programming languages
+🔭 I’m currently working on [it-scripts](https://github.com/it-scripts)<br>🌱 I’m currently studying...<br>⚡ Fun fact: There are around 700 separate programming languages
 
 
 ## 🌐 Socials:
