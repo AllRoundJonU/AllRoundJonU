@@ -1,0 +1,90 @@
+name: Update Aquarium
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Once every day at midnight
+  workflow_dispatch: # Allows manual trigger in the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  render-aquarium:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout profile repository
+        uses: actions/checkout@v6
+
+      - name: Fetch stars and generate tank
+        id: generate
+        run: |
+          ORG_NAME="it-scripts"
+          REPO_NAME="it-drugs"
+
+          # Fetch stargazer count from GitHub API
+          STARS=$(curl -s "https://api.github.com/repos/$ORG_NAME/$REPO_NAME" | jq -r '.stargazers_count // 0')
+
+          # Fish sprites
+          FISH_SPRITES=("><(((('>" "¸.·´¯`·.´¯`·.¸¸.·´¯`·.¸><(((º>" "><> " ">°))))><")
+          WIDTH=46
+
+          # Generate lines with swimming fish
+          TANK_LINES=()
+          for ((i=0; i<STARS; i++)); do
+            SPRITE=${FISH_SPRITES[$((i \%${#FISH_SPRITES[@]}))]}
+            PADDING=$(( (i * 7 + 3) \% (WIDTH -${#SPRITE} - 2) ))
+            LINE=$(printf "~%*s%s%*s~" $PADDING "" "$SPRITE" $((WIDTH - PADDING -${#SPRITE} - 2)) "")
+            TANK_LINES+=("$LINE")
+          done
+
+          # Fallback if repo has 0 stars yet
+          if [ $STARS -eq 0 ]; then
+            TANK_LINES+=("~         (No fish yet, waiting for stars...)         ~")
+          fi
+
+          # Build ASCII container
+          ROOF="~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+          FLOOR="~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+          GROUND="vvvvvvvvvvvvv.vvvvvvvvvvvvvv.vvvvvvvvvvvvvvvvv"
+
+          {
+            echo "TANK<<EOF"
+            echo "\`\`\`text"
+            echo "+----------------- AQUARIUM -----------------+"
+            echo "$ROOF"
+            printf "%s\n" "${TANK_LINES[@]}"
+            echo "$FLOOR"
+            echo "$GROUND"
+            echo "+--------------------------------------------+"
+            echo " Repo: $ORG_NAME/$REPO_NAME \vert{} Stars:$STARS"
+            echo "\`\`\`"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Replace content in README
+        run: |
+          NEW_TANK='${{ steps.generate.outputs.TANK }}'
+
+          # Replace content between markers
+          node -e "
+            const fs = require('fs');
+            const readme = fs.readFileSync('README.md', 'utf8');
+            const replacement = process.env.NEW_TANK;
+            const updated = readme.replace(
+              /<!-- AQUARIUM:START -->[\s\S]*?<!-- AQUARIUM:END -->/,
+              '<!-- AQUARIUM:START -->\n' + replacement + '\n<!-- AQUARIUM:END -->'
+            );
+            fs.writeFileSync('README.md', updated);
+          "
+        env:
+          NEW_TANK: ${{ steps.generate.outputs.TANK }}
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: update aquarium fish population"
+            git push
+          fi
