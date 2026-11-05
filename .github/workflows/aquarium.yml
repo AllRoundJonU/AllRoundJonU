@@ -2,8 +2,8 @@ name: Update Aquarium
 
 on:
   schedule:
-    - cron: "0 0 * * *" # Täglich um Mitternacht
-  workflow_dispatch: # Ermöglicht manuelles Starten im Actions-Tab
+    - cron: "0 0 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout profile repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Generate 2D Aquarium
         run: |
@@ -22,6 +22,7 @@ jobs:
           import json
           import random
           import re
+          import os
 
           ORG = "it-scripts"
           REPO = "it-drugs"
@@ -34,8 +35,10 @@ jobs:
               data = json.loads(resp.read().decode())
               stars = data.get("stargazers_count", 0)
           except Exception as e:
-            print(f"Error fetching repo: {e}")
+            print(f"Warning: Could not fetch API ({e}), using default fallback.")
             stars = 123
+
+          print(f"Loaded {stars} stars for {ORG}/{REPO}")
 
           # 2. Dimensions & Assets
           WIDTH = 50
@@ -45,43 +48,34 @@ jobs:
           FISH_LEFT  = ["<º)))><", "<><", "<((((°<", "<*)))><"]
           BUBBLES = [".", "o", "°"]
 
-          # Fixed seed based on stars + current day for stability
           random.seed(stars)
 
-          # Grid initialization
           grid = [[" " for _ in range(WIDTH)] for _ in range(HEIGHT)]
 
-          # Add ambient bubbles
           for _ in range(7):
             r = random.randint(0, HEIGHT - 2)
             c = random.randint(0, WIDTH - 1)
             grid[r][c] = random.choice(BUBBLES)
 
-          # Calculate fish count (1 fish per ~12 stars, max 10 to avoid crowding)
           num_fish = max(3, min(10, stars // 12))
 
           for _ in range(num_fish):
             sprite = random.choice(FISH_RIGHT if random.random() > 0.4 else FISH_LEFT)
             slen = len(sprite)
-            # Try finding a free spot
-            for _ in range(20):
+            for _ in range(25):
               r = random.randint(0, HEIGHT - 2)
               c = random.randint(0, WIDTH - slen - 1)
-              # Check collision
               if all(grid[r][c + i] in [" ", ".", "o", "°"] for i in range(slen)):
                 for i, char in enumerate(sprite):
                   grid[r][c + i] = char
                 break
 
-          # Ground decorations
           seabed = list("vvvvvvvvvvvvv.vvvvvvvvvvvvvv.vvvvvvvvvvvvvvvvvvvvv"[:WIDTH])
-          # Place a little crab at the bottom
           crab = "(V)(°,,,,°)(V)"
           crab_pos = random.randint(2, WIDTH - len(crab) - 2)
           for i, ch in enumerate(crab):
             grid[HEIGHT - 1][crab_pos + i] = ch
 
-          # 3. Assemble ASCII Output
           border = "+-" + "-" * WIDTH + "-+"
           water_surface = "~ " * (WIDTH // 2)
 
@@ -99,8 +93,14 @@ jobs:
 
           tank_output = "\n".join(lines)
 
-          # 4. Inject into README.md
-          with open("README.md", "r", encoding="utf-8") as f:
+          # 3. Write into README.md
+          readme_path = "README.md" if os.path.exists("README.md") else "readme.md"
+          if not os.path.exists(readme_path):
+            with open("README.md", "w", encoding="utf-8") as f:
+              f.write("# Profile\n\n")
+            readme_path = "README.md"
+
+          with open(readme_path, "r", encoding="utf-8") as f:
             content = f.read()
 
           pattern = r"<!-- AQUARIUM:START -->[\s\S]*?<!-- AQUARIUM:END -->"
@@ -108,19 +108,23 @@ jobs:
 
           if re.search(pattern, content):
             new_content = re.sub(pattern, replacement, content)
-            with open("README.md", "w", encoding="utf-8") as f:
-              f.write(new_content)
-            print("README updated successfully.")
+            print("Found existing markers. Replacing aquarium content.")
           else:
-            print("Markers <!-- AQUARIUM:START --> and <!-- AQUARIUM:END --> not found!")
+            print("Markers not found. Appending aquarium to the end of README.")
+            new_content = content.rstrip() + f"\n\n### 🐟 Live Tank\n{replacement}\n"
+
+          with open(readme_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+          print(f"Successfully wrote changes to {readme_path}.")
           EOF
 
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md
+          git add -A
           if ! git diff --staged --quiet; then
-            git commit -m "chore: populate aquarium"
+            git commit -m "chore: update aquarium"
             git push
           fi
