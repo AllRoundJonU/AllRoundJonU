@@ -24,16 +24,20 @@ jobs:
           # Fetch stargazer count from GitHub API
           STARS=$(curl -s "https://api.github.com/repos/$ORG_NAME/$REPO_NAME" | jq -r '.stargazers_count // 0')
 
-          # Fish sprites
-          FISH_SPRITES=("><(((('>" "¸.·´¯`·.´¯`·.¸¸.·´¯`·.¸><(((º>" "><> " ">°))))><")
+          # Safe fish sprites (no unescaped backticks or quote conflicts)
+          FISH_SPRITES=("><(((('>" "><> " ">°))))><" "<'(((><" "><(((*>")
           WIDTH=46
 
           # Generate lines with swimming fish
           TANK_LINES=()
           for ((i=0; i<STARS; i++)); do
-            SPRITE=${FISH_SPRITES[$((i \%${#FISH_SPRITES[@]}))]}
-            PADDING=$(( (i * 7 + 3) \% (WIDTH -${#SPRITE} - 2) ))
-            LINE=$(printf "~%*s%s%*s~" $PADDING "" "$SPRITE" $((WIDTH - PADDING -${#SPRITE} - 2)) "")
+            SPRITE="${FISH_SPRITES[$((i \%${#FISH_SPRITES[@]}))]}"
+            SPRITE_LEN=${#SPRITE}
+            MAX_PAD=$((WIDTH - SPRITE_LEN - 2))
+            if [ $MAX_PAD -lt 1 ]; then MAX_PAD=1; fi
+            PADDING=$(( (i * 7 + 3) % MAX_PAD ))
+            RIGHT_PAD=$((WIDTH - PADDING - SPRITE_LEN - 2))
+            LINE=$(printf "~\%*s\%s\%*s~" $PADDING "" "$SPRITE" $RIGHT_PAD "")
             TANK_LINES+=("$LINE")
           done
 
@@ -49,7 +53,7 @@ jobs:
 
           {
             echo "TANK<<EOF"
-            echo "\`\`\`text"
+            echo '```text'
             echo "+----------------- AQUARIUM -----------------+"
             echo "$ROOF"
             printf "%s\n" "${TANK_LINES[@]}"
@@ -57,7 +61,7 @@ jobs:
             echo "$GROUND"
             echo "+--------------------------------------------+"
             echo " Repo: $ORG_NAME/$REPO_NAME \vert{} Stars:$STARS"
-            echo "\`\`\`"
+            echo '```'
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
