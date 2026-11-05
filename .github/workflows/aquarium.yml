@@ -2,8 +2,8 @@ name: Update Aquarium
 
 on:
   schedule:
-    - cron: "0 0 * * *" # Once every day at midnight
-  workflow_dispatch: # Allows manual trigger in the Actions tab
+    - cron: "0 0 * * *" # Täglich um Mitternacht
+  workflow_dispatch: # Ermöglicht manuelles Starten im Actions-Tab
 
 permissions:
   contents: write
@@ -15,73 +15,105 @@ jobs:
       - name: Checkout profile repository
         uses: actions/checkout@v6
 
-      - name: Fetch stars and generate tank
-        id: generate
+      - name: Generate 2D Aquarium
         run: |
-          ORG_NAME="it-scripts"
-          REPO_NAME="it-drugs"
+          python3 - << 'EOF'
+          import urllib.request
+          import json
+          import random
+          import re
 
-          # Fetch stargazer count from GitHub API
-          STARS=$(curl -s "https://api.github.com/repos/$ORG_NAME/$REPO_NAME" | jq -r '.stargazers_count // 0')
+          ORG = "it-scripts"
+          REPO = "it-drugs"
 
-          # Safe fish sprites (no unescaped backticks or quote conflicts)
-          FISH_SPRITES=("><(((('>" "><> " ">°))))><" "<'(((><" "><(((*>")
-          WIDTH=46
+          # 1. Fetch Stars
+          url = f"https://api.github.com/repos/{ORG}/{REPO}"
+          req = urllib.request.Request(url, headers={"User-Agent": "GitHub-Action"})
+          try:
+            with urllib.request.urlopen(req) as resp:
+              data = json.loads(resp.read().decode())
+              stars = data.get("stargazers_count", 0)
+          except Exception as e:
+            print(f"Error fetching repo: {e}")
+            stars = 123
 
-          # Generate lines with swimming fish
-          TANK_LINES=()
-          for ((i=0; i<STARS; i++)); do
-            SPRITE="${FISH_SPRITES[$((i \%${#FISH_SPRITES[@]}))]}"
-            SPRITE_LEN=${#SPRITE}
-            MAX_PAD=$((WIDTH - SPRITE_LEN - 2))
-            if [ $MAX_PAD -lt 1 ]; then MAX_PAD=1; fi
-            PADDING=$(( (i * 7 + 3) % MAX_PAD ))
-            RIGHT_PAD=$((WIDTH - PADDING - SPRITE_LEN - 2))
-            LINE=$(printf "~\%*s\%s\%*s~" $PADDING "" "$SPRITE" $RIGHT_PAD "")
-            TANK_LINES+=("$LINE")
-          done
+          # 2. Dimensions & Assets
+          WIDTH = 50
+          HEIGHT = 8
 
-          # Fallback if repo has 0 stars yet
-          if [ $STARS -eq 0 ]; then
-            TANK_LINES+=("~         (No fish yet, waiting for stars...)         ~")
-          fi
+          FISH_RIGHT = ["><(((º>", "><>", ">°))))><", "><(((*>"]
+          FISH_LEFT  = ["<º)))><", "<><", "<((((°<", "<*)))><"]
+          BUBBLES = [".", "o", "°"]
 
-          # Build ASCII container
-          ROOF="~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-          FLOOR="~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-          GROUND="vvvvvvvvvvvvv.vvvvvvvvvvvvvv.vvvvvvvvvvvvvvvvv"
+          # Fixed seed based on stars + current day for stability
+          random.seed(stars)
 
-          {
-            echo "TANK<<EOF"
-            echo '```text'
-            echo "+----------------- AQUARIUM -----------------+"
-            echo "$ROOF"
-            printf "%s\n" "${TANK_LINES[@]}"
-            echo "$FLOOR"
-            echo "$GROUND"
-            echo "+--------------------------------------------+"
-            echo " Repo: $ORG_NAME/$REPO_NAME \vert{} Stars:$STARS"
-            echo '```'
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          # Grid initialization
+          grid = [[" " for _ in range(WIDTH)] for _ in range(HEIGHT)]
 
-      - name: Replace content in README
-        run: |
-          NEW_TANK='${{ steps.generate.outputs.TANK }}'
+          # Add ambient bubbles
+          for _ in range(7):
+            r = random.randint(0, HEIGHT - 2)
+            c = random.randint(0, WIDTH - 1)
+            grid[r][c] = random.choice(BUBBLES)
 
-          # Replace content between markers
-          node -e "
-            const fs = require('fs');
-            const readme = fs.readFileSync('README.md', 'utf8');
-            const replacement = process.env.NEW_TANK;
-            const updated = readme.replace(
-              /<!-- AQUARIUM:START -->[\s\S]*?<!-- AQUARIUM:END -->/,
-              '<!-- AQUARIUM:START -->\n' + replacement + '\n<!-- AQUARIUM:END -->'
-            );
-            fs.writeFileSync('README.md', updated);
-          "
-        env:
-          NEW_TANK: ${{ steps.generate.outputs.TANK }}
+          # Calculate fish count (1 fish per ~12 stars, max 10 to avoid crowding)
+          num_fish = max(3, min(10, stars // 12))
+
+          for _ in range(num_fish):
+            sprite = random.choice(FISH_RIGHT if random.random() > 0.4 else FISH_LEFT)
+            slen = len(sprite)
+            # Try finding a free spot
+            for _ in range(20):
+              r = random.randint(0, HEIGHT - 2)
+              c = random.randint(0, WIDTH - slen - 1)
+              # Check collision
+              if all(grid[r][c + i] in [" ", ".", "o", "°"] for i in range(slen)):
+                for i, char in enumerate(sprite):
+                  grid[r][c + i] = char
+                break
+
+          # Ground decorations
+          seabed = list("vvvvvvvvvvvvv.vvvvvvvvvvvvvv.vvvvvvvvvvvvvvvvvvvvv"[:WIDTH])
+          # Place a little crab at the bottom
+          crab = "(V)(°,,,,°)(V)"
+          crab_pos = random.randint(2, WIDTH - len(crab) - 2)
+          for i, ch in enumerate(crab):
+            grid[HEIGHT - 1][crab_pos + i] = ch
+
+          # 3. Assemble ASCII Output
+          border = "+-" + "-" * WIDTH + "-+"
+          water_surface = "~ " * (WIDTH // 2)
+
+          lines = [
+            "```text",
+            border,
+            f"| {water_surface} |"
+          ]
+          for row in grid:
+            lines.append(f"| {''.join(row)} |")
+          lines.append(f"| {''.join(seabed)} |")
+          lines.append(border)
+          lines.append(f" Repo: {ORG}/{REPO} | ⭐ {stars} Stars (Population: {num_fish} Fish)")
+          lines.append("```")
+
+          tank_output = "\n".join(lines)
+
+          # 4. Inject into README.md
+          with open("README.md", "r", encoding="utf-8") as f:
+            content = f.read()
+
+          pattern = r"<!-- AQUARIUM:START -->[\s\S]*?<!-- AQUARIUM:END -->"
+          replacement = f"<!-- AQUARIUM:START -->\n{tank_output}\n<!-- AQUARIUM:END -->"
+
+          if re.search(pattern, content):
+            new_content = re.sub(pattern, replacement, content)
+            with open("README.md", "w", encoding="utf-8") as f:
+              f.write(new_content)
+            print("README updated successfully.")
+          else:
+            print("Markers <!-- AQUARIUM:START --> and <!-- AQUARIUM:END --> not found!")
+          EOF
 
       - name: Commit and push changes
         run: |
@@ -89,6 +121,6 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
           if ! git diff --staged --quiet; then
-            git commit -m "chore: update aquarium fish population"
+            git commit -m "chore: populate aquarium"
             git push
           fi
